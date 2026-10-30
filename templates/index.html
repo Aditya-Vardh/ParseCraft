@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ParseCraft</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+{% macro render_tree(node) %}
+    {% if node %}
+        <ul class="parse-tree">
+            <li>
+                <span>{{ node.symbol }}</span>
+                {% if node.children %}
+                    <div class="tree-children">
+                        {% for child in node.children %}
+                            {{ render_tree(child) }}
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </li>
+        </ul>
+    {% endif %}
+{% endmacro %}
+
+{% set nullable_symbols = [] %}
+{% if result %}
+    {% for symbol, values in result.first.items() %}
+        {% if 'epsilon' in values %}
+            {% set _ = nullable_symbols.append(symbol) %}
+        {% endif %}
+    {% endfor %}
+{% endif %}
+
+<div class="app-shell">
+    <header class="top-toolbar">
+        <div class="brand-block">
+            <span class="brand-mark">SF</span>
+            <div>
+                <p class="eyebrow">Professional Compiler IDE</p>
+                <h1>ParseCraft</h1>
+            </div>
+        </div>
+        <div class="toolbar-actions">
+            {% if result %}
+                <button type="button" class="toolbar-button" id="download-report">Download PDF Report</button>
+            {% endif %}
+            <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">
+                <span class="theme-label">Dark Mode</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="ide-layout">
+        <section class="editor-pane panel">
+            <div class="pane-header">
+                <div>
+                    <p class="eyebrow">Editor</p>
+                    <h2>Grammar Workspace</h2>
+                </div>
+                <span class="file-pill">grammar.sf</span>
+            </div>
+
+            <form action="/analyze" method="POST">
+                <div class="sample-actions" aria-label="Sample grammars">
+                    <button type="button" class="sample-btn" data-sample="arithmetic">Arithmetic</button>
+                    <button type="button" class="sample-btn" data-sample="simple">Simple</button>
+                    <button type="button" class="sample-btn" data-sample="boolean">Boolean</button>
+                    <button type="button" class="sample-btn" data-sample="assignment">Assignment</button>
+                </div>
+
+                <label for="grammar">Grammar Input</label>
+                <textarea
+                    id="grammar"
+                    name="grammar"
+                    spellcheck="false"
+                    placeholder="E->TE'
+E'->+TE'|epsilon
+T->FT'
+T'->*FT'|epsilon
+F->(E)|id">{{ grammar if grammar else "" }}</textarea>
+
+                <label for="test_string">Test String</label>
+                <div class="run-row">
+                    <input
+                        id="test_string"
+                        type="text"
+                        name="test_string"
+                        value="{{ test_string if test_string else '' }}"
+                        placeholder="id+id*id">
+                    <button type="submit" class="primary-action">Analyze Grammar</button>
+                </div>
+            </form>
+        </section>
+
+        <aside class="insights-sidebar panel">
+            <div class="pane-header">
+                <div>
+                    <p class="eyebrow">Insights</p>
+                    <h2>Compiler Dashboard</h2>
+                </div>
+            </div>
+
+            {% if result %}
+                <div class="score-ring {{ 'good' if result.stats.is_ll1 and result.accepted else 'warn' }}">
+                    <strong>{{ 100 if result.stats.is_ll1 and result.accepted else 72 if result.stats.is_ll1 else 46 }}</strong>
+                    <span>Grammar Score</span>
+                </div>
+
+                <div class="insight-grid">
+                    <div class="insight-item">
+                        <span>Grammar Type</span>
+                        <strong>{{ result.stats.grammar_type }}</strong>
+                    </div>
+                    <div class="insight-item">
+                        <span>LL(1) Status</span>
+                        <strong>{{ "Ready" if result.stats.is_ll1 else "Conflicts" }}</strong>
+                    </div>
+                    <div class="insight-item">
+                        <span>Non Terminals</span>
+                        <strong>{{ result.stats.non_terminals }}</strong>
+                    </div>
+                    <div class="insight-item">
+                        <span>Terminals</span>
+                        <strong>{{ result.stats.terminals }}</strong>
+                    </div>
+                    <div class="insight-item">
+                        <span>Productions</span>
+                        <strong>{{ result.stats.productions }}</strong>
+                    </div>
+                    <div class="insight-item">
+                        <span>Conflicts</span>
+                        <strong>{{ result.conflicts|length }}</strong>
+                    </div>
+                    <div class="insight-item wide-mini">
+                        <span>Nullable Symbols</span>
+                        <strong>{{ nullable_symbols|join(', ') if nullable_symbols else 'None' }}</strong>
+                    </div>
+                    <div class="insight-item wide-mini">
+                        <span>Parser Result</span>
+                        <strong>{{ "Accepted" if result.accepted else "Rejected" }}</strong>
+                    </div>
+                </div>
+
+                <div class="suggestion-box {{ 'success' if result.stats.is_ll1 else 'warning-tone' }}">
+                    {% if result.stats.is_ll1 %}
+                        <strong>Suggestion</strong>
+                        <p>Grammar is suitable for predictive parsing. The LL(1) table has no conflicts.</p>
+                    {% else %}
+                        <strong>Suggestion</strong>
+                        <p>Grammar contains LL(1) conflicts. Review overlapping FIRST/FOLLOW choices in the table.</p>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <strong>Awaiting analysis</strong>
+                    <p>Run the grammar to populate compiler metrics, nullable symbols, conflicts, and parser status.</p>
+                </div>
+            {% endif %}
+        </aside>
+
+        <section class="workspace-pane">
+            {% if error %}
+                <section class="alert">{{ error }}</section>
+            {% endif %}
+
+            {% if result %}
+                <section class="pipeline-card card wide">
+                    <div class="section-heading">
+                        <div>
+                            <p class="eyebrow">Execution</p>
+                            <h2>Animated Compiler Pipeline</h2>
+                        </div>
+                        <span class="status {{ 'accepted' if result.accepted else 'rejected' }}">{{ "Accepted" if result.accepted else "Rejected" }}</span>
+                    </div>
+                    <div class="compiler-pipeline" aria-label="Compiler pipeline">
+                        {% for stage in [
+                            'Grammar Loaded',
+                            'Left Recursion',
+                            'Left Factoring',
+                            'FIRST Sets',
+                            'FOLLOW Sets',
+                            'LL(1) Table',
+                            'Predictive Parsing',
+                            'Parse Tree',
+                            'Analysis Complete'
+                        ] %}
+                            <div class="pipeline-stage" data-stage-index="{{ loop.index0 }}">
+                                <span class="stage-check" aria-hidden="true"></span>
+                                <strong>{{ stage }}</strong>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </section>
+
+                <section class="console-card card wide">
+                    <div class="section-heading">
+                        <div>
+                            <p class="eyebrow">Console</p>
+                            <h2>Compiler Console</h2>
+                        </div>
+                    </div>
+                    <div class="compiler-console" id="compiler-console" aria-live="polite">
+                        <div class="console-line" data-log="[INFO] Loading Grammar... OK"></div>
+                        <div class="console-line" data-log="[INFO] Removing Left Recursion... OK"></div>
+                        <div class="console-line" data-log="[INFO] Applying Left Factoring... OK"></div>
+                        <div class="console-line" data-log="[INFO] Computing FIRST... OK"></div>
+                        <div class="console-line" data-log="[INFO] Computing FOLLOW... OK"></div>
+                        <div class="console-line" data-log="[INFO] Generating LL(1) Table... {{ 'OK' if not result.conflicts else 'CONFLICTS FOUND' }}"></div>
+                        <div class="console-line" data-log="[INFO] Running Predictive Parser... OK"></div>
+                        <div class="console-line" data-log="[INFO] Generating Parse Tree... OK"></div>
+                        <div class="console-line" data-log="[DONE] Analysis Complete."></div>
+                    </div>
+                </section>
+
+                <section id="results" class="results">
+                    <article class="card stats-card wide">
+                        <div class="section-heading">
+                            <div>
+                                <p class="eyebrow">Overview</p>
+                                <h2>Grammar Statistics</h2>
+                            </div>
+                            <span class="grammar-badge {{ 'll1' if result.stats.is_ll1 else 'not-ll1' }}">
+                                {{ "LL(1)" if result.stats.is_ll1 else "Not LL(1)" }}
+                            </span>
+                        </div>
+                        <div class="stat-grid">
+                            <div class="stat-item">
+                                <span>Non Terminals</span>
+                                <strong>{{ result.stats.non_terminals }}</strong>
+                            </div>
+                            <div class="stat-item">
+                                <span>Terminals</span>
+                                <strong>{{ result.stats.terminals }}</strong>
+                            </div>
+                            <div class="stat-item">
+                                <span>Productions</span>
+                                <strong>{{ result.stats.productions }}</strong>
+                            </div>
+                            <div class="stat-item">
+                                <span>Grammar Type</span>
+                                <strong>{{ result.stats.grammar_type }}</strong>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article class="card">
+                        <h2>Original Grammar</h2>
+                        <pre>{% for line in result.original %}{{ line }}
+{% endfor %}</pre>
+                    </article>
+
+                    <article class="card">
+                        <h2>Grammar after Left Recursion</h2>
+                        <pre>{% for line in result.left_recursion %}{{ line }}
+{% endfor %}</pre>
+                    </article>
+
+                    <article class="card">
+                        <h2>Grammar after Left Factoring</h2>
+                        <pre>{% for line in result.left_factoring %}{{ line }}
+{% endfor %}</pre>
+                    </article>
+
+                    <article class="card">
+                        <div class="mini-heading">
+                            <h2>FIRST</h2>
+                            <button type="button" class="explain-btn" data-explain="first">Explain</button>
+                        </div>
+                        <div class="explain-panel" id="explain-first">
+                            FIRST sets show which terminals can begin strings derived from each non-terminal. Nullable entries include epsilon, so they can disappear while parsing.
+                        </div>
+                        <table class="compact-table">
+                            <tbody>
+                            {% for symbol, values in result.first.items() %}
+                                <tr>
+                                    <th>{{ symbol }}</th>
+                                    <td>{{ values }}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </article>
+
+                    <article class="card">
+                        <div class="mini-heading">
+                            <h2>FOLLOW</h2>
+                            <button type="button" class="explain-btn" data-explain="follow">Explain</button>
+                        </div>
+                        <div class="explain-panel" id="explain-follow">
+                            FOLLOW sets list terminals that can legally appear immediately after a non-terminal. The start symbol also receives the end marker.
+                        </div>
+                        <table class="compact-table">
+                            <tbody>
+                            {% for symbol, values in result.follow.items() %}
+                                <tr>
+                                    <th>{{ symbol }}</th>
+                                    <td>{{ values }}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </article>
+
+                    <article class="card wide">
+                        <div class="section-heading">
+                            <div>
+                                <p class="eyebrow">Predictive Parser</p>
+                                <h2>LL(1) Parsing Table</h2>
+                            </div>
+                            <button type="button" class="explain-btn" data-explain="ll1">Explain LL(1)</button>
+                        </div>
+                        <div class="explain-panel" id="explain-ll1">
+                            Each table cell maps one non-terminal and one lookahead terminal to a production. Empty cells mean no rule applies for that parser state.
+                        </div>
+                        {% if result.conflicts %}
+                            <div class="warning">
+                                {% for conflict in result.conflicts %}
+                                    <p>{{ conflict }}</p>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                        <div class="table-scroll tall-table">
+                            <table class="analysis-table parsing-table">
+                                <thead>
+                                <tr>
+                                    <th>Non-terminal</th>
+                                    {% for terminal in result.table_columns %}
+                                        <th>{{ terminal }}</th>
+                                    {% endfor %}
+                                </tr>
+                                </thead>
+                                <tbody>
+                                {% for row in result.table_rows %}
+                                    <tr>
+                                        <th>{{ row.non_terminal }}</th>
+                                        {% for terminal in result.table_columns %}
+                                            <td>{{ row[terminal] }}</td>
+                                        {% endfor %}
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+
+                    <article class="card wide">
+                        <div class="section-heading">
+                            <div>
+                                <p class="eyebrow">Trace</p>
+                                <h2>Parser Simulation</h2>
+                            </div>
+                            <span class="status {{ 'accepted' if result.accepted else 'rejected' }}">
+                                {{ "Accepted" if result.accepted else "Rejected" }}
+                            </span>
+                        </div>
+                        {% if result.parse_errors %}
+                            <div class="warning">
+                                {% for parse_error in result.parse_errors %}
+                                    <p>{{ parse_error }}</p>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                        <div class="table-scroll">
+                            <table class="analysis-table simulation-table">
+                                <thead>
+                                <tr>
+                                    <th>Stack</th>
+                                    <th>Remaining Input</th>
+                                    <th>Action</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                {% for step in result.simulation %}
+                                    <tr class="{{ 'final-step' if loop.last else '' }}">
+                                        <td>{{ step.stack }}</td>
+                                        <td>{{ step.input }}</td>
+                                        <td>{{ step.action }}</td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+
+                    <article class="card wide">
+                        <div class="section-heading">
+                            <div>
+                                <p class="eyebrow">Structure</p>
+                                <h2>Parse Tree</h2>
+                            </div>
+                        </div>
+                        <div class="tree-wrap">
+                            {{ render_tree(result.tree) }}
+                        </div>
+                    </article>
+                </section>
+                <script id="report-data" type="application/json">
+                    {{ {
+                        "project": "ParseCraft",
+                        "grammar": grammar,
+                        "testString": test_string,
+                        "stats": result.stats,
+                        "nullableSymbols": nullable_symbols,
+                        "originalGrammar": result.original,
+                        "leftRecursion": result.left_recursion,
+                        "leftFactoring": result.left_factoring,
+                        "first": result.first,
+                        "follow": result.follow,
+                        "tableColumns": result.table_columns,
+                        "tableRows": result.table_rows,
+                        "simulation": result.simulation,
+                        "accepted": result.accepted,
+                        "conflicts": result.conflicts,
+                        "parseErrors": result.parse_errors
+                    } | tojson }}
+                </script>
+            {% else %}
+                <section class="welcome-card card">
+                    <p class="eyebrow">Workbench</p>
+                    <h2>Ready for compiler analysis</h2>
+                    <p>Enter a grammar, choose a sample, and run the analyzer to open the pipeline, console, insights, parser tables, and parse tree workspace.</p>
+                </section>
+            {% endif %}
+        </section>
+    </main>
+</div>
+
+<footer class="footer">
+    <div>
+        <strong>ParseCraft</strong>
+        <span>Built by Team PLUTONIUM.</span>
+    </div>
+</footer>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+
+</html>

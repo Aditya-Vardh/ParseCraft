@@ -1,2 +1,1 @@
 # ParseCraft
-Compiler design project
