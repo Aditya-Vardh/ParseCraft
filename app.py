@@ -11,7 +11,7 @@ from compiler.grammar import (
 )
 from compiler.ll1 import build_parsing_table, format_table, parse_input
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="public", static_url_path="")
 
 
 def format_sets(sets: dict[str, set[str]]) -> dict[str, str]:
